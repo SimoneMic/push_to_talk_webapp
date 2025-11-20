@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Push to Talk</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-top: 50px;
+    }
+
+    button {
+      padding: 20px 40px;
+      font-size: 20px;
+      border-radius: 10px;
+      border: 2px solid #333;
+      background-color: #f0f0f0;
+      transition: background-color 0.2s, transform 0.1s;
+    }
+
+    button.recording {
+      background-color: red;
+      color: white;
+      transform: scale(1.05);
+    }
+
+    h2 {
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Push to Talk</h2>
+  <button id="ptt">Hold to Talk</button>
+
+  <!-- Load the generated config -->
+  <script src="config.js"></script>
+
+  <script>
+    let mediaRecorder;
+    let ws;
+
+    // Create WebSocket
+    function connectWebSocket() {
+      ws = new WebSocket(window.APP_CONFIG.WS_URL);
+
+      ws.onopen = () => console.log("Connected to server");
+      ws.onerror = err => console.error("WebSocket error:", err);
+      ws.onclose = () => console.log("WebSocket closed");
+    }
+
+    connectWebSocket();
+
+    const button = document.getElementById("ptt");
+
+    async function startRecording() {
+      if (mediaRecorder && mediaRecorder.state === "recording") return;
+
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (err) {
+        console.error("Microphone access denied:", err);
+        alert("Please allow microphone access!");
+        return;
+      }
+
+      mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      mediaRecorder.ondataavailable = e => {
+        if (ws.readyState === WebSocket.OPEN) ws.send(e.data);
+      };
+      mediaRecorder.start(100);
+
+      button.classList.add("recording");
+      console.log("Recording started");
+    }
+
+    function stopRecording() {
+      if (!mediaRecorder || mediaRecorder.state !== "recording") return;
+      mediaRecorder.stop();
+      button.classList.remove("recording");
+      console.log("Recording stopped");
+    }
+
+    // Desktop mouse events
+    button.onmousedown = startRecording;
+    button.onmouseup = stopRecording;
+
+    // Mobile touch events
+    button.ontouchstart = e => {
+      e.preventDefault();
+      startRecording();
+    };
+    button.ontouchend = e => {
+      e.preventDefault();
+      stopRecording();
+    };
+
+    // Global fallback if finger leaves button
+    window.onmouseup = stopRecording;
+    window.ontouchend = stopRecording;
+  </script>
+</body>
+</html>
