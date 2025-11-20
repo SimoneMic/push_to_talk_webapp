@@ -25,8 +25,20 @@ with open("../webpage/config.js", "w") as f:
 # WebSocket server handler
 async def handler(websocket):
     print("Client connected")
-    with open("received_audio.webm", "wb") as f:
-        async for message in websocket:
+    f = None
+    filename = "received_audio.webm"
+
+    async for message in websocket:
+        # Special message to start a new recording
+        if isinstance(message, str) and message == "__NEW_RECORDING__":
+            if f:
+                f.close()
+            f = open(filename, "wb")  # overwrite file
+            print("Starting new recording, previous file overwritten")
+        # Audio data
+        elif isinstance(message, bytes):
+            if f is None:
+                f = open(filename, "wb")  # first chunk without signal
             f.write(message)
 
 # Start server on all interfaces

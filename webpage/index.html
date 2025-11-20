@@ -59,24 +59,30 @@
     async function startRecording() {
       if (mediaRecorder && mediaRecorder.state === "recording") return;
 
+      if (ws.readyState === WebSocket.OPEN) {
+          // Signal server to overwrite previous file
+          ws.send("__NEW_RECORDING__");
+      }
+
       let stream;
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       } catch (err) {
-        console.error("Microphone access denied:", err);
-        alert("Please allow microphone access!");
-        return;
+          console.error("Mic access denied:", err);
+          alert("Please allow microphone access!");
+          return;
       }
 
       mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
       mediaRecorder.ondataavailable = e => {
-        if (ws.readyState === WebSocket.OPEN) ws.send(e.data);
+          if (ws.readyState === WebSocket.OPEN) ws.send(e.data);
       };
       mediaRecorder.start(100);
 
       button.classList.add("recording");
       console.log("Recording started");
     }
+
 
     function stopRecording() {
       if (!mediaRecorder || mediaRecorder.state !== "recording") return;

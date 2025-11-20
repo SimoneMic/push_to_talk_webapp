@@ -2,14 +2,15 @@
 webapp for streaming audio to a server running on a PC
 
 ## On the Laptop
-- 1) Inside the `webpage` folder run:
 
-```
-python3 -m http.server 8080
-```
-- 2) Run the `server.py` script inside its folder:
+- 1) Run the `webserver.py` script inside the folder `/server`:
   ```
   python3 webserver.py
+  ```
+- 2) Inside the `webpage` folder run:
+
+  ```
+  python3 -m http.server 8080
   ```
 
 ## On the smartphone
@@ -19,3 +20,4 @@ python3 -m http.server 8080
   ```
     http://YOUR_PC_IP:8080
   ```
+  YOUR_PC_IP is printed when you run the `webserver.py`
