@@ -5,105 +5,130 @@
   <title>Push to Talk</title>
   <style>
     body {
-      font-family: sans-serif;
+      font-family: 'Segoe UI', sans-serif;
       display: flex;
       flex-direction: column;
       align-items: center;
-      margin-top: 50px;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      background: black;
     }
 
-    button {
-      padding: 20px 40px;
-      font-size: 20px;
-      border-radius: 10px;
-      border: 2px solid #333;
-      background-color: #f0f0f0;
-      transition: background-color 0.2s, transform 0.1s;
-    }
-
-    button.recording {
-      background-color: red;
-      color: white;
-      transform: scale(1.05);
-    }
-
-    h2 {
+    h1 {
       margin-bottom: 20px;
+      color: #004868;
+    }
+
+    #icon {
+      width: 400px;
+      height: 400px;
+      margin-bottom: 20px;
+    }
+
+    #ptt {
+      width: 150px;
+      height: 150px;
+      border-radius: 50%;
+      border: 4px solid #333;
+      background-color: #004868;
+      color: white;
+      font-size: 20px;
+      font-weight: bold;
+      transition: background-color 0.2s, transform 0.1s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    #ptt.recording {
+      background-color: red;
+      transform: scale(1.1);
+      box-shadow: 0 0 20px rgba(255,0,0,0.6);
+    }
+
+    #status {
+      margin-top: 20px;
+      font-size: 18px;
+      color: red;
+      font-weight: bold;
+      visibility: hidden;
     }
   </style>
 </head>
 <body>
-  <h2>Push to Talk</h2>
-  <button id="ptt">Hold to Talk</button>
+  <h1>Push to Talk</h1>
+  
+  <!-- Image at the top -->
+  <img id="icon" src="resources/eCub_Core_Dark.png" alt="eCub Icon">
 
-  <!-- Load the generated config -->
+  <!-- Push-to-talk button -->
+  <div id="ptt">Hold to Talk</div>
+  <div id="status">● Recording</div>
+
   <script src="config.js"></script>
-
   <script>
+    let ws = new WebSocket(window.APP_CONFIG.WS_URL);
     let mediaRecorder;
-    let ws;
-
-    // Create WebSocket
-    function connectWebSocket() {
-      ws = new WebSocket(window.APP_CONFIG.WS_URL);
-
-      ws.onopen = () => console.log("Connected to server");
-      ws.onerror = err => console.error("WebSocket error:", err);
-      ws.onclose = () => console.log("WebSocket closed");
-    }
-
-    connectWebSocket();
-
     const button = document.getElementById("ptt");
+    const status = document.getElementById("status");
+    let startTime, timerInterval;
+
+    ws.onopen = () => console.log("Connected to server");
+    ws.onerror = err => console.error("WebSocket error:", err);
+    ws.onclose = () => console.log("WebSocket closed");
+
+    function updateTimer() {
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      status.textContent = `● Recording (${elapsed}s)`;
+    }
 
     async function startRecording() {
       if (mediaRecorder && mediaRecorder.state === "recording") return;
 
-      if (ws.readyState === WebSocket.OPEN) {
-          // Signal server to overwrite previous file
-          ws.send("__NEW_RECORDING__");
-      }
+      if (ws.readyState === WebSocket.OPEN) ws.send("__NEW_RECORDING__");
 
       let stream;
       try {
-          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       } catch (err) {
-          console.error("Mic access denied:", err);
-          alert("Please allow microphone access!");
-          return;
+        alert("Microphone access denied!");
+        return;
       }
 
       mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
       mediaRecorder.ondataavailable = e => {
-          if (ws.readyState === WebSocket.OPEN) ws.send(e.data);
+        if (ws.readyState === WebSocket.OPEN) ws.send(e.data);
       };
       mediaRecorder.start(100);
 
       button.classList.add("recording");
-      console.log("Recording started");
+      status.style.visibility = "visible";
+      startTime = Date.now();
+      timerInterval = setInterval(updateTimer, 1000);
     }
-
 
     function stopRecording() {
       if (!mediaRecorder || mediaRecorder.state !== "recording") return;
-      mediaRecorder.stop();
-      button.classList.remove("recording");
-      console.log("Recording stopped");
+
+      setTimeout(() => {
+        mediaRecorder.stop();
+        button.classList.remove("recording");
+        status.style.visibility = "hidden";
+        clearInterval(timerInterval);
+        console.log("Recording stopped");
+      }, 400); // small delay to capture last audio chunk
     }
 
-    // Desktop mouse events
+    // Desktop events
     button.onmousedown = startRecording;
     button.onmouseup = stopRecording;
 
     // Mobile touch events
-    button.ontouchstart = e => {
-      e.preventDefault();
-      startRecording();
-    };
-    button.ontouchend = e => {
-      e.preventDefault();
-      stopRecording();
-    };
+    button.ontouchstart = e => { e.preventDefault(); startRecording(); };
+    button.ontouchend = e => { e.preventDefault(); stopRecording(); };
 
     // Global fallback if finger leaves button
     window.onmouseup = stopRecording;
