@@ -6,6 +6,8 @@ import websockets
 import av
 import numpy as np
 
+yarp.Network.init()
+
 # Reliable LAN IP detection
 def get_lan_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -17,6 +19,11 @@ def get_lan_ip():
 
 ip = get_lan_ip()
 ws_port = int(os.getenv("WS_PORT", "8000"))
+ws_url = f"ws://{ip}:{ws_port}"
+print(f"Generating config.js with WS_URL = {ws_url}")
+with open("../webpage/config.js", "w") as f:
+    f.write(f'window.APP_CONFIG = {{ WS_URL: "{ws_url}" }};')
+
 
 # YARP audio port
 yarp_port = yarp.BufferedPortSound()
@@ -79,7 +86,7 @@ async def handler(websocket):
 # ---------- WEBSOCKET SERVER ----------
 async def main():
     async with websockets.serve(handler, "0.0.0.0", ws_port):
-        print(f"Server running on ws://0.0.0.0:{ws_port} (LAN {ip})")
+        print(f"Server running on wss://0.0.0.0:{ws_port} (LAN {ip})")
         await asyncio.Future()
 
 asyncio.run(main())
