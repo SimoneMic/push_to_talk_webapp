@@ -88,13 +88,36 @@
       status.textContent = `● Recording (${elapsed}s)`;
     }
 
+    // Unified pointer events
+    button.addEventListener('pointerdown', startRecording);
+    button.addEventListener('pointerup', stopRecording);
+    button.addEventListener('pointerleave', stopRecording);  // optional
+
+    // Mobile touch fallback (passive: false to allow preventDefault)
+    button.addEventListener('touchstart', async e => {
+        e.preventDefault();  // prevent scrolling
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          console.log("Microphone access granted!");
+          // start sending audio to WebSocket...
+        } catch (err) {
+          console.error("Mic access denied:", err);
+        }
+      }, {passive:false});
+    button.addEventListener('touchend', e => { e.preventDefault(); stopRecording(); }, {passive:false});
+
+    // Updated startRecording
     async function startRecording() {
       if (isRecording) return;
       isRecording = true;
-
-      if (ws.readyState === WebSocket.OPEN)
+    
+      if (ws.readyState !== WebSocket.OPEN) {
+        console.log("WebSocket not open yet");
+        // Optionally wait or skip recording
+      } else {
         ws.send("__NEW_RECORDING__");
-
+      }
+    
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       } catch (err) {
@@ -102,65 +125,57 @@
         isRecording = false;
         return;
       }
-
-      audioContext = new AudioContext({
-        sampleRate: 48000      // matches typical WebRTC sample rate
-      });
-
+    
+      audioContext = new AudioContext({ sampleRate: 48000 });
+      await audioContext.resume();  // important for Chrome / modern browsers
+    
       sourceNode = audioContext.createMediaStreamSource(stream);
-
       processor = audioContext.createScriptProcessor(4096, 1, 1);
-
+    
       processor.onaudioprocess = e => {
         if (!isRecording) return;
-
         const floatData = e.inputBuffer.getChannelData(0);
-        const buffer = floatData.slice(0).buffer;  // copy ArrayBuffer
-
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(buffer);  // send raw PCM (Float32)
-        }
+        if (ws.readyState === WebSocket.OPEN) ws.send(floatData.slice(0).buffer);
       };
-
+    
       sourceNode.connect(processor);
-      processor.connect(audioContext.destination); // required in Chrome
-
-      // UI updates
+      processor.connect(audioContext.destination);
+    
       button.classList.add("recording");
       status.style.visibility = "visible";
       startTime = Date.now();
-      timerInterval = setInterval(updateTimer, 1000);
+      timerInterval = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - startTime)/1000);
+        status.textContent = `● Recording (${elapsed}s)`;
+      }, 1000);
     }
 
     function stopRecording() {
       if (!isRecording) return;
       isRecording = false;
-
+    
       if (processor) processor.disconnect();
       if (sourceNode) sourceNode.disconnect();
       if (audioContext) audioContext.close();
       if (stream) stream.getTracks().forEach(t => t.stop());
-
-      if (ws.readyState === WebSocket.OPEN)
-        ws.send("__STOP_RECORDING__");
-
-      // UI
+    
+      if (ws.readyState === WebSocket.OPEN) ws.send("__STOP_RECORDING__");
+    
       button.classList.remove("recording");
       status.style.visibility = "hidden";
       clearInterval(timerInterval);
-
       console.log("Recording stopped");
     }
 
-    // Desktop events
+    //// Desktop events
     button.onmousedown = startRecording;
     button.onmouseup = stopRecording;
-
-    // Mobile touch events
+    //
+    //// Mobile touch events
     button.ontouchstart = e => { e.preventDefault(); startRecording(); };
     button.ontouchend = e => { e.preventDefault(); stopRecording(); };
-
-    // Global fallback
+    //
+    //// Global fallback
     window.onmouseup = stopRecording;
     window.ontouchend = stopRecording;
   </script>
