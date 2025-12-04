@@ -50,6 +50,9 @@ public:
             {
                 std::cout << "Unable to connect: " << remote_port_name_ << " with " << local_port_name_ << std::endl;
             }
+            // Set default parameters
+            channels_ = 1;
+            sampleRate_ = 48000;
         }
 
     void run() {
@@ -73,6 +76,8 @@ private:
     std::string remote_port_name_ = "/SpeechTranscription_nws/audio:i";
     std::vector<char> audio_bytes_;
     yarp::sig::Sound sound_;
+    int channels_;
+    int sampleRate_;
 
     void do_read() {
         ws_.async_read(buffer_, [self = shared_from_this()](beast::error_code ec, std::size_t bytes) {
@@ -89,36 +94,52 @@ private:
 
         if(ws_.got_text()) {
             std::string msg = beast::buffers_to_string(buffer_.data());
+
             if(msg == "__NEW_RECORDING__") {
-                //if(file_.is_open()) file_.close();
-                //file_.open(filename_, std::ios::binary | std::ios::trunc);
-                audio_bytes_.clear();
+                // Reset the YARP Sound for a new recording
+                sound_.resize(channels_, 0);
                 std::cout << "Starting new recording" << std::endl;
             }
-            else if (msg == "__STOP_RECORDING__")
-            {
-                std::cout << "Stopping recording" << std::endl;
-                if (finalize_sound())
-                {
-                    auto& msg = yarp_port_.prepare();
-                    msg = sound_;
-                    yarp_port_.write();
-                    sound_.clear();
-                }
+            else if(msg == "__STOP_RECORDING__") {
+                std::cout << "Recording finished: "
+                          << sound_.getSamples() << " samples, "
+                          << sound_.getChannels() << " channels" << std::endl;
+                auto &msg = yarp_port_.prepare();
+                msg.clear();
+                msg = sound_;
+                yarp_port_.write();
+                sound_.clear();
             }
-        } 
-        else 
-        {
-            //if(!file_.is_open()) file_.open(filename_, std::ios::binary | std::ios::trunc);
+
+        } else { // binary PCM chunk
             auto data = buffer_.data();
-            //file_.write(reinterpret_cast<const char*>(data.data()), data.size());
-            const char* ptr = reinterpret_cast<const char*>(data.data());
-            audio_bytes_.insert(audio_bytes_.end(), ptr, ptr + data.size());
+            size_t num_bytes = data.size();
+
+            if(num_bytes % 2 != 0) {
+                std::cerr << "Warning: odd number of bytes in PCM chunk" << std::endl;
+            }
+
+            const int16_t* pcm = reinterpret_cast<const int16_t*>(data.data());
+            size_t num_samples = num_bytes / 2;
+
+            size_t old_samples_per_channel = sound_.getSamples();
+            size_t new_samples_per_channel = num_samples / channels_;
+
+            // Resize Sound to accommodate new samples
+            sound_.resize(channels_, old_samples_per_channel + new_samples_per_channel);
+
+            // Append samples channel by channel
+            for(size_t i = 0; i < num_samples; ++i) {
+                int channel = i % channels_;
+                size_t sample_idx = old_samples_per_channel + i / channels_;
+                sound_.getChannel(channel)[sample_idx].get() = pcm[i]; // store raw PCM
+            }
         }
 
         buffer_.consume(buffer_.size());
         do_read(); // continue reading
     }
+
 
 
     bool finalize_sound() {

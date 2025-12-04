@@ -60,17 +60,14 @@
 </head>
 <body>
   <h1>Push to Talk</h1>
-  
-  <!-- Image at the top -->
   <img id="icon" src="resources/eCub_Core_Dark.png" alt="eCub Icon">
 
-  <!-- Push-to-talk button -->
   <div id="ptt">Hold to Talk</div>
   <div id="status">● Recording</div>
 
   <script src="config.js"></script>
   <script>
-    let ws = new WebSocket(window.APP_CONFIG.WS_URL);
+    const ws = new WebSocket(window.APP_CONFIG.WS_URL);
     let mediaRecorder;
     const button = document.getElementById("ptt");
     const status = document.getElementById("status");
@@ -98,42 +95,50 @@
         return;
       }
 
-      mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=pcm' });
+
       mediaRecorder.ondataavailable = e => {
-        if (ws.readyState === WebSocket.OPEN) ws.send(e.data);
+        e.data.arrayBuffer().then(buffer => {
+          if(ws.readyState === WebSocket.OPEN) {
+            ws.send(buffer);
+          }
+        });
       };
+
+      mediaRecorder.onstop = () => {
+        if(ws.readyState === WebSocket.OPEN) ws.send("__STOP_RECORDING__");
+        button.classList.remove("recording");
+        status.style.visibility = "hidden";
+        clearInterval(timerInterval);
+        window.removeEventListener("mouseup", stopRecording);
+        window.removeEventListener("touchend", stopRecording);
+        console.log("Recording stopped");
+      };
+
       mediaRecorder.start(100);
 
       button.classList.add("recording");
       status.style.visibility = "visible";
       startTime = Date.now();
       timerInterval = setInterval(updateTimer, 1000);
+
+      // Global fallback events
+      window.addEventListener("mouseup", stopRecording);
+      window.addEventListener("touchend", stopRecording);
     }
 
     function stopRecording() {
       if (!mediaRecorder || mediaRecorder.state !== "recording") return;
-
-      setTimeout(() => {
-        mediaRecorder.stop();
-        if(ws.readyState === WebSocket.OPEN) ws.send("__STOP_RECORDING__");
-        button.classList.remove("recording");
-        status.style.visibility = "hidden";
-        clearInterval(timerInterval);
-        console.log("Recording stopped");
-      }, 400); // small delay to capture last audio chunk
+      mediaRecorder.stop();
     }
 
     // Desktop events
-    button.onmousedown = startRecording;
-    button.onmouseup = stopRecording;
+    button.addEventListener("mousedown", startRecording);
+    button.addEventListener("mouseup", stopRecording);
 
     // Mobile touch events
-    button.ontouchstart = e => { e.preventDefault(); startRecording(); };
-    button.ontouchend = e => { e.preventDefault(); stopRecording(); };
-
-    // Global fallback if finger leaves button
-    window.onmouseup = stopRecording;
-    window.ontouchend = stopRecording;
+    button.addEventListener("touchstart", e => { e.preventDefault(); startRecording(); });
+    button.addEventListener("touchend", e => { e.preventDefault(); stopRecording(); });
   </script>
 </body>
 </html>
