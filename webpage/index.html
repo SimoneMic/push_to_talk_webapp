@@ -115,6 +115,7 @@
 
       setTimeout(() => {
         mediaRecorder.stop();
+        if(ws.readyState === WebSocket.OPEN) ws.send("__STOP_RECORDING__");
         button.classList.remove("recording");
         status.style.visibility = "hidden";
         clearInterval(timerInterval);

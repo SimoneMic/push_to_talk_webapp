@@ -13,6 +13,10 @@
 #include <string>
 #include <thread>
 #include <cstring>
+#include <yarp/os/Network.h>
+#include <yarp/os/BufferedPort.h>
+#include <yarp/sig/Sound.h>
+#include <yarp/sig/SoundFile.h>
 
 namespace beast = boost::beast;
 namespace websocket = beast::websocket;
@@ -40,7 +44,13 @@ std::string get_lan_ip() {
 class Session : public std::enable_shared_from_this<Session> {
 public:
     explicit Session(tcp::socket socket)
-        : ws_(std::move(socket)) {}
+        : ws_(std::move(socket)) {
+            yarp_port_.open(local_port_name_);
+            if (!yarp::os::Network::connect(local_port_name_, remote_port_name_))
+            {
+                std::cout << "Unable to connect: " << remote_port_name_ << " with " << local_port_name_ << std::endl;
+            }
+        }
 
     void run() {
         ws_.async_accept([self = shared_from_this()](beast::error_code ec) {
@@ -58,6 +68,11 @@ private:
     beast::flat_buffer buffer_;
     std::ofstream file_;
     std::string filename_ = "received_audio.webm";
+    yarp::os::BufferedPort<yarp::sig::Sound> yarp_port_;
+    std::string local_port_name_ = "/webserver/audio:o";
+    std::string remote_port_name_ = "/SpeechTranscription_nws/audio:i";
+    std::vector<char> audio_bytes_;
+    yarp::sig::Sound sound_;
 
     void do_read() {
         ws_.async_read(buffer_, [self = shared_from_this()](beast::error_code ec, std::size_t bytes) {
@@ -75,18 +90,51 @@ private:
         if(ws_.got_text()) {
             std::string msg = beast::buffers_to_string(buffer_.data());
             if(msg == "__NEW_RECORDING__") {
-                if(file_.is_open()) file_.close();
-                file_.open(filename_, std::ios::binary | std::ios::trunc);
+                //if(file_.is_open()) file_.close();
+                //file_.open(filename_, std::ios::binary | std::ios::trunc);
+                audio_bytes_.clear();
                 std::cout << "Starting new recording" << std::endl;
             }
-        } else {
-            if(!file_.is_open()) file_.open(filename_, std::ios::binary | std::ios::trunc);
+            else if (msg == "__STOP_RECORDING__")
+            {
+                std::cout << "Stopping recording" << std::endl;
+                if (finalize_sound())
+                {
+                    auto& msg = yarp_port_.prepare();
+                    msg = sound_;
+                    yarp_port_.write();
+                    sound_.clear();
+                }
+            }
+        } 
+        else 
+        {
+            //if(!file_.is_open()) file_.open(filename_, std::ios::binary | std::ios::trunc);
             auto data = buffer_.data();
-            file_.write(reinterpret_cast<const char*>(data.data()), data.size());
+            //file_.write(reinterpret_cast<const char*>(data.data()), data.size());
+            const char* ptr = reinterpret_cast<const char*>(data.data());
+            audio_bytes_.insert(audio_bytes_.end(), ptr, ptr + data.size());
         }
 
         buffer_.consume(buffer_.size());
         do_read(); // continue reading
+    }
+
+
+    bool finalize_sound() {
+        if(audio_bytes_.empty()) return false;
+        if(!yarp::sig::file::read_bytestream(
+                sound_,
+                audio_bytes_.data(),
+                audio_bytes_.size(),
+                ".mp3")) {
+            std::cerr << "Failed to decode MP3 to YARP sound" << std::endl;
+            return false;
+        }
+        std::cout << "Decoded audio into YARP sound: "
+                  << sound_.getSamples() << " samples, "
+                  << sound_.getChannels() << " channels" << std::endl;
+        return true;
     }
 };
 
@@ -122,6 +170,7 @@ private:
 
 int main() {
     try {
+        yarp::os::Network yarp;
         uint16_t ws_port = 8000;
         if(const char* env = std::getenv("WS_PORT")) ws_port = std::stoi(env);
 
